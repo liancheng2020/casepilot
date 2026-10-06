@@ -112,6 +112,11 @@ try {
   // Leave time to inspect each milestone in the recorded interview demonstration.
   const hold = () => page.waitForTimeout(2000);
   await page.goto(base);
+  assert.equal(await page.title(), "CasePilot · 订单支付异常调查与处置");
+  assert.match(await page.locator(".breadcrumb").innerText(), /订单支付异常/);
+  const orders = await api<Order[]>("/orders");
+  assert.ok(orders.every((order) => !/拾味|篮子|提货篮/.test(order.items)));
+  checks.push("通用订单支付异常定位与中性示例商品");
   await page.getByRole("button", { name: "开始调查" }).click();
   await page.getByRole("heading", { name: "对账补偿提案" }).waitFor();
   assert.equal(

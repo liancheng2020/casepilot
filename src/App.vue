@@ -253,7 +253,7 @@ onUnmounted(() => clearInterval(timer));
     <aside class="sidebar">
       <a class="brand" href="/" aria-label="CasePilot 首页"
         ><span class="brand-symbol"><Layers :size="22" /></span
-        ><span>CasePilot<small>ORDER OPERATIONS</small></span></a
+        ><span>CasePilot<small>PAYMENT CASES</small></span></a
       >
       <nav aria-label="主导航">
         <button :class="{ active: view === 'tasks' }" @click="view = 'tasks'">
@@ -276,7 +276,7 @@ onUnmounted(() => clearInterval(timer));
     <div class="workspace">
       <header class="topbar">
         <div class="breadcrumb">
-          拾味订单场景 <ChevronRight :size="14" /><strong>{{
+          订单支付异常 <ChevronRight :size="14" /><strong>{{
             view === "tasks"
               ? "处置工作台"
               : view === "cases"

@@ -47,7 +47,7 @@ export function businessFixtures(): {
     tenantId: key === "other" ? "other-demo" : "basket-demo",
     customerRef: key.startsWith("ambiguous") ? "尾号 7788" : `演示客户 ${key}`,
     customerName: "演示顾客",
-    items: key === "closed" ? "蔬果提货篮" : "拾味双人餐篮",
+    items: key === "closed" ? "便携收纳盒" : "日用品组合装",
     amountCents: 6800,
     currency: "CNY",
     status:
