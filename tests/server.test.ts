@@ -16,7 +16,7 @@ test("API任务、访问控制、请求结构、同源检查和证据导出", as
     createApp(service, {
       WEB_ACCESS_TOKEN: token,
       AGENT_MODE: "mock",
-      DINGTALK_ENABLED: "false",
+      FEISHU_ENABLED: "false",
     }),
   );
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));

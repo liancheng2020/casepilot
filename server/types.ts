@@ -104,7 +104,7 @@ export interface Task {
   tenantId: string;
   ownerId: string;
   complaint: string;
-  channel: "web" | "dingtalk";
+  channel: "web" | "feishu";
   mode: Mode;
   status: Status;
   orderId?: string;

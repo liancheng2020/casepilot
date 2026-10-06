@@ -8,7 +8,9 @@ import type { Config } from "./config.js";
 
 export function createApp(
   service: CaseService,
-  cfg: Pick<Config, "WEB_ACCESS_TOKEN" | "AGENT_MODE" | "DINGTALK_ENABLED">,
+  cfg: Pick<Config, "WEB_ACCESS_TOKEN" | "AGENT_MODE" | "FEISHU_ENABLED">,
+  channelState: () => string = () =>
+    cfg.FEISHU_ENABLED === "true" ? "idle" : "disabled",
 ) {
   const app = express();
   app.disable("x-powered-by");
@@ -27,32 +29,26 @@ export function createApp(
         supplied.length !== expected.length ||
         !timingSafeEqual(supplied, expected)
       )
-        return res
-          .status(401)
-          .json({
-            error: {
-              code: "ACCESS_TOKEN_REQUIRED",
-              message: "请输入演示访问令牌。",
-            },
-          });
+        return res.status(401).json({
+          error: {
+            code: "ACCESS_TOKEN_REQUIRED",
+            message: "请输入演示访问令牌。",
+          },
+        });
     }
     if (req.method !== "GET") {
       const origin = req.get("Origin");
       if (origin && new URL(origin).host !== req.get("Host"))
-        return res
-          .status(403)
-          .json({
-            error: {
-              code: "ORIGIN_DENIED",
-              message: "不允许跨站修改演示数据。",
-            },
-          });
+        return res.status(403).json({
+          error: {
+            code: "ORIGIN_DENIED",
+            message: "不允许跨站修改演示数据。",
+          },
+        });
       if (!req.is("application/json"))
-        return res
-          .status(415)
-          .json({
-            error: { code: "JSON_REQUIRED", message: "仅接受 JSON 请求。" },
-          });
+        return res.status(415).json({
+          error: { code: "JSON_REQUIRED", message: "仅接受 JSON 请求。" },
+        });
     }
     next();
   });
@@ -66,11 +62,11 @@ export function createApp(
       defaultMode: cfg.AGENT_MODE,
       modelConfigured: Boolean(service.providers.deepseek),
       dataSource: "synthetic",
-      dingtalk: {
-        enabled: cfg.DINGTALK_ENABLED === "true",
-        transport: "stream",
+      feishu: {
+        enabled: cfg.FEISHU_ENABLED === "true",
+        state: channelState(),
+        transport: "websocket",
         interaction: "text_commands",
-        liveVerified: false,
       },
       auth: "shared_demo_access_and_demo_actors_not_production_auth",
     }),
@@ -180,14 +176,12 @@ export function createApp(
       _next: express.NextFunction,
     ) => {
       if (error instanceof z.ZodError || error instanceof SyntaxError)
-        return res
-          .status(400)
-          .json({
-            error: {
-              code: "INVALID_REQUEST",
-              message: "请求字段或 JSON 格式不正确。",
-            },
-          });
+        return res.status(400).json({
+          error: {
+            code: "INVALID_REQUEST",
+            message: "请求字段或 JSON 格式不正确。",
+          },
+        });
       res
         .status(error instanceof AppError ? error.status : 500)
         .json({ error: errorResult(error) });

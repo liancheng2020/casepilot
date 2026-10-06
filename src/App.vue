@@ -28,7 +28,7 @@ type Config = {
   scenarios: Scenario[];
   defaultMode: "mock" | "deepseek";
   modelConfigured: boolean;
-  dingtalk: { enabled: boolean };
+  feishu: { enabled: boolean; state: string };
 };
 const config = ref<Config>();
 const tasks = ref<Task[]>([]),
@@ -276,7 +276,13 @@ onUnmounted(() => clearInterval(timer));
         <div class="topbar-right">
           <span class="channel-label"
             ><MessageSquare :size="14" />
-            {{ config?.dingtalk.enabled ? "钉钉已配置" : "Web 演示" }}</span
+            {{
+              config?.feishu.state === "connected"
+                ? "飞书已连接"
+                : config?.feishu.enabled
+                  ? "飞书未连接"
+                  : "Web 演示"
+            }}</span
           ><label class="actor-select"
             ><span>演示身份</span
             ><select

@@ -30,7 +30,7 @@ async function start() {
         AGENT_MODE: "mock",
         DEEPSEEK_API_KEY: "",
         WEB_ACCESS_TOKEN: "",
-        DINGTALK_ENABLED: "false",
+        FEISHU_ENABLED: "false",
       },
       stdio: ["ignore", "pipe", "pipe"],
     },

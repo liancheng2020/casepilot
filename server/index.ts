@@ -8,7 +8,7 @@ import { Store } from "./store.js";
 import { CaseService } from "./service.js";
 import { DeepSeekProvider, MockProvider } from "./providers.js";
 import { createApp } from "./app.js";
-import { startDingTalk } from "./dingtalk.js";
+import { startFeishu } from "./feishu.js";
 
 const cfg = loadConfig();
 mkdirSync(cfg.DATA_DIR, { recursive: true });
@@ -39,7 +39,13 @@ const service = new CaseService(
   },
   { modelRequests: cfg.MAX_MODEL_REQUESTS, toolCalls: cfg.MAX_TOOL_CALLS },
 );
-const app = createApp(service, cfg);
+let bot: ReturnType<typeof startFeishu> | undefined;
+const app = createApp(
+  service,
+  cfg,
+  () =>
+    bot?.state() || (cfg.FEISHU_ENABLED === "true" ? "connecting" : "disabled"),
+);
 const server = createServer(app);
 let closeVite: (() => Promise<void>) | undefined;
 if (process.argv.includes("--production")) {
@@ -54,7 +60,6 @@ if (process.argv.includes("--production")) {
   app.use(vite.middlewares);
   closeVite = () => vite.close();
 }
-let bot: Awaited<ReturnType<typeof startDingTalk>> | undefined;
 server.on("error", async (error) => {
   console.error(
     "服务启动失败：",
@@ -71,12 +76,11 @@ server.listen(cfg.PORT, cfg.HOST, async () => {
   service.recover();
   void service.drain();
   try {
-    bot = await startDingTalk(service, cfg);
-    if (bot.enabled)
-      console.log("钉钉 Stream 已启动；真实平台联调需使用授权测试应用。");
+    bot = startFeishu(service, cfg);
+    if (bot.enabled) console.log("飞书长连接已启动；连接状态可在工作台查看。");
   } catch {
     console.error(
-      "钉钉连接失败，Web 工作台仍可使用；请检查应用配置与网络。密钥未记录。",
+      "飞书连接失败，Web 工作台仍可使用；请检查应用配置与网络。密钥未记录。",
     );
   }
 });

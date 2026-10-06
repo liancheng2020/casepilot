@@ -44,12 +44,12 @@ npm run eval:model
 
 基线、模型、界面报告和截图保存到 `artifacts/`，不自动提交；[本次验证记录](docs/VALIDATION.md)区分规则、真实模型和未验证范围。
 
-## 钉钉与部署
+## 飞书与部署
 
-钉钉使用企业内部测试机器人的 Stream 通道，无需公开接收回调。填写 `.env.example` 中应用凭证、组织 ID、员工身份映射，设置 `DINGTALK_ENABLED=true`。员工发送问题后可以用“补充 / 确认 / 拒绝 / 核对”文字命令继续任务。详见[钉钉配置](docs/ARCHITECTURE.md#钉钉入口)。**适配器已有离线验证，尚未完成真实测试应用联调；首版不是交互卡片。**
+飞书使用官方 SDK 长连接，无需公网回调地址。创建自建机器人，开通私聊接收和发送权限，订阅 `im.message.receive_v1`。填写 `.env.example` 中的 `FEISHU_*` 配置，设置 `FEISHU_ENABLED=true`；发送“身份”可获取自己的身份标识，配置明确的角色映射后才能调查和审批。支持“补充 / 确认 / 拒绝 / 核对 / 查询”文字命令，不接收群聊。详见[飞书配置](docs/ARCHITECTURE.md#飞书入口)；实际联调范围见验证记录。
 
-部署到可常驻的 Node.js 服务，挂载持久数据目录：`npm ci && npm run build && npm start`。非本机监听必须设置至少 24 位 `WEB_ACCESS_TOKEN`，并使用 HTTPS 反向代理。身份切换只是演示机制，不能接入真实业务数据。SQLite 文件、进程锁与 Stream 长连接不适合直接当作 Vercel Serverless 部署。
+部署到可常驻的 Node.js 服务，挂载持久数据目录：`npm ci && npm run build && npm start`。非本机监听必须设置至少 24 位 `WEB_ACCESS_TOKEN`，并使用 HTTPS 反向代理。身份切换只是演示机制，不能接入真实业务数据。SQLite 文件、进程锁与飞书长连接不适合直接当作 Vercel Serverless 部署。
 
-技术栈：TypeScript、Vue 3、Express、Node.js SQLite、Zod、DeepSeek Tool Calling、钉钉 Stream。
+技术栈：TypeScript、Vue 3、Express、Node.js SQLite、Zod、DeepSeek Tool Calling、飞书 WebSocket。
 
 [架构与边界](docs/ARCHITECTURE.md) · [面试与演示](docs/INTERVIEW.md)

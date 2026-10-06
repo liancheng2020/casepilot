@@ -3,7 +3,7 @@
 ## 主线
 
 ```text
-Web / 钉钉消息
+Web / 飞书消息
   -> 身份和商家范围 -> 持久化任务与去重回执
   -> Agent 循环：模型选择工具 -> 校验 -> 只读执行 -> 证据 -> 模型再决策
   -> 信息不足暂停 / 调查完成 / 人工接管 / 待确认提案
@@ -18,16 +18,16 @@ Web / 钉钉消息
 
 ## 代码职责
 
-| 文件                  | 职责                                                       |
-| --------------------- | ---------------------------------------------------------- |
-| `server/agent.ts`     | 请求预算、动态工具反馈、批次限制、错误反馈、取消竞态       |
-| `server/providers.ts` | 规则基线与 DeepSeek 原生工具调用；无隐藏重试和降级         |
-| `server/tools.ts`     | 工具白名单、Zod 参数、唯一订单绑定、证据引用、建议而非写入 |
-| `server/policy.ts`    | 对账资格与规则版本；提案内容摘要                           |
-| `server/service.ts`   | 澄清、审批、拒绝、幂等执行、回查、恢复、串行调度           |
-| `server/store.ts`     | SQLite 事务、动作唯一约束、任务 revision CAS、消息回执     |
-| `server/dingtalk.ts`  | Stream 消息、组织与员工映射、文字命令、回执和回复地址限制  |
-| `src/App.vue`         | 操作工作台、证据、审批、故障演示、真实/规则来源区分        |
+| 文件                  | 职责                                                         |
+| --------------------- | ------------------------------------------------------------ |
+| `server/agent.ts`     | 请求预算、动态工具反馈、批次限制、错误反馈、取消竞态         |
+| `server/providers.ts` | 规则基线与 DeepSeek 原生工具调用；无隐藏重试和降级           |
+| `server/tools.ts`     | 工具白名单、Zod 参数、唯一订单绑定、证据引用、建议而非写入   |
+| `server/policy.ts`    | 对账资格与规则版本；提案内容摘要                             |
+| `server/service.ts`   | 澄清、审批、拒绝、幂等执行、回查、恢复、串行调度             |
+| `server/store.ts`     | SQLite 事务、动作唯一约束、任务 revision CAS、消息回执       |
+| `server/feishu.ts`    | 飞书私聊、组织与用户映射、文字命令、回执、连接状态与通知去重 |
+| `src/App.vue`         | 操作工作台、证据、审批、故障演示、真实/规则来源区分          |
 
 ## 谁拥有哪个状态
 
@@ -52,13 +52,14 @@ Web / 钉钉消息
 
 单数据目录进程锁阻止多个服务同时调度；任务 CAS 防止旧对象覆盖新状态。首版不包含多进程工作队列、全局费用限额、生产监控或高可用保障。
 
-## 钉钉入口
+## 飞书入口
 
-1. 在获得授权的测试组织创建企业内部机器人应用，启用 Stream 消息接收并发布到测试人员。
-2. 配置 `DINGTALK_CLIENT_ID`、`DINGTALK_CLIENT_SECRET`、`DINGTALK_CORP_ID`。
-3. 使用真实发送人的 `senderStaffId` 配置 `DINGTALK_ACTOR_MAP`，例如 `{"staff-test-cs":"service","staff-test-ops":"operations"}`；不能直接照抄示例员工 ID。
-4. 配置测试人员可访问的 `PUBLIC_BASE_URL`；消息链接不携带令牌。设置 `DINGTALK_ENABLED=true`，重启常驻服务。
-5. 先用合成订单试发，再核对任务、平台回执与后台结果。没有真实应用凭证时只运行离线适配器测试。
+1. 在自己的飞书个人版或获得授权的测试组织创建自建应用，添加机器人能力。
+2. 仅开通 `im:message.p2p_msg:readonly`（读取发给机器人的私聊）与 `im:message:send_as_bot`（以机器人身份回复）；无需通讯录和群聊历史权限。
+3. 在本机 `.env` 填写 `FEISHU_APP_ID`、`FEISHU_APP_SECRET`，设 `FEISHU_ENABLED=true`，启动常驻服务。密钥不写前端、不提交 Git。
+4. 在“事件与回调”选择 SDK 长连接接收，订阅 `im.message.receive_v1`，发布到指定测试人员。长连接须先建立，平台才能保存该接收方式。
+5. 私聊机器人发送“身份”，获取自己的 `tenant_key` 和 `open_id`；填写 `FEISHU_TENANT_KEY`、`FEISHU_ACTOR_MAP` 后重启，例如 `{"ou_test_cs":"service","ou_test_ops":"operations"}`。示例 ID 不能照抄。空名单仅允许身份发现，绝不自动赋予业务权限。
+6. 配置测试人员可访问的 `PUBLIC_BASE_URL`；本机链接只能在运行服务的电脑访问。先用规则模式和合成订单核对收发、补充、审批及后台结果，再接真实模型。
 
 机器人文字命令：
 
@@ -68,11 +69,13 @@ Web / 钉钉消息
 确认 <任务UUID> <提案UUID>
 拒绝 <任务UUID> <提案UUID>
 核对 <任务UUID>
+查询 <任务UUID>
+身份
 ```
 
-服务只接受配置组织和员工，消息里的“管理员”声明不授予权限。消息去重持久化，ACK 在任务入库后返回；模型和回复发送不阻塞 ACK。回复 URL 只允许钉钉指定 HTTPS 主机和路径，不跟随跳转。
+仅接收真实用户发送的私聊文本，拒绝群聊、机器人消息和非文本附件。业务只接受配置组织与 `open_id`，消息里的“管理员”声明不授予权限。入库后立即返回事件处理器，模型与回复不阻塞平台 ACK。消息 ID 去重持久化，通知用稳定 UUID；发送目标来自已验证的私聊事件，不接受用户提供的任意回复 URL。身份发现只把当前发送人的自身标识回复给本人，不查通讯录。
 
-Stream 收消息、回复发送、组织权限是否配置正确，必须通过真实平台联调才能证明。通知暂未实现可靠 outbox；会话回复 URL 过期、发送失败或服务在 ACK 后重启可能丢通知，任务仍保存在 Web 工作台。首版不支持交互卡片和生产 SSO。
+长连接握手成功不等于消息订阅、可用范围和发送权限都正确，必须实际私聊验证。工作台区分配置启用和 SDK 实际连接状态。通知暂未实现可靠 outbox；发送失败或 ACK 后重启可能丢通知，可用“查询”命令恢复查看。重启不会自动批准提案。首版使用文字命令，不包含交互卡片和生产 SSO。
 
 ## 安全与可信边界
 
@@ -86,5 +89,5 @@ Zod 能校验字段结构，证据 ID 校验能确认来源存在；二者都不
 
 - [DeepSeek Tool Calls](https://api-docs.deepseek.com/zh-cn/guides/tool_calls/)：模型发起调用，程序执行并回传工具结果。
 - [DeepSeek 请求协议](https://api-docs.deepseek.com/zh-cn/api/create-chat-completion/)：首版使用 `reasoning_effort=none`，兼容 `tool_choice=required`。
-- [钉钉 Stream Node.js SDK](https://github.com/open-dingtalk/dingtalk-stream-sdk-nodejs)：SDK 固定为目前使用的 `2.1.6-beta.1`，真实联调未完成。
+- [飞书官方 Node.js SDK](https://github.com/larksuite/node-sdk/blob/main/README.zh.md)：使用 `@larksuiteoapi/node-sdk` 的长连接与消息 API。
 - [Node.js SQLite](https://nodejs.org/api/sqlite.html)：本机 Node.js 24 下仍有实验性 API 提示，应保留版本约束。

@@ -155,7 +155,7 @@ const report = {
     : [],
   dataSource: "synthetic",
   companyConnected: false,
-  dingtalkLiveVerified: false,
+  feishuLiveVerified: false,
   approval: "automated_test_actor",
   scope: "developer_cases_not_blind_or_production_accuracy",
   total: results.length,
