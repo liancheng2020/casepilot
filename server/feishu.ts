@@ -34,6 +34,24 @@ export function parseMessage(raw: unknown) {
   };
 }
 type Binding = { chatId: string; openId: string; tenantKey: string };
+const commandActions: Record<string, string> = {
+  补充: "补充",
+  确认: "确认",
+  拒绝: "拒绝",
+  核对: "核对",
+  查询: "查询",
+  reply: "补充",
+  approve: "确认",
+  reject: "拒绝",
+  verify: "核对",
+  query: "查询",
+};
+const commandNames = Object.keys(commandActions).join("|");
+const commandPattern = new RegExp(
+  `^(${commandNames})\\s+([0-9a-f-]{36})(?:\\s+([\\s\\S]+))?$`,
+  "i",
+);
+const commandPrefix = new RegExp(`^(${commandNames})(?:\\s|$)`, "i");
 const statusNames: Record<Task["status"], string> = {
   queued: "已接收",
   investigating: "调查中",
@@ -98,13 +116,15 @@ export class FeishuAdapter {
         403,
       );
     const actor = actorById(actorId);
-    const command = message.text.match(
-      /^(补充|确认|拒绝|核对|查询)\s+([0-9a-f-]{36})(?:\s+([\s\S]+))?$/i,
-    );
-    if (/^(补充|确认|拒绝|核对|查询)(?:\s|$)/.test(message.text) && !command)
+    const command = message.text.match(commandPattern);
+    if (
+      !command &&
+      (commandPrefix.test(message.text) ||
+        z.uuid().safeParse(message.text.split(/\s+/)[0]).success)
+    )
       throw new AppError(
         "INVALID_COMMAND",
-        "命令格式错误，请使用完整任务 ID 和提案 ID。",
+        "命令格式错误或缺少动作，请使用“补充 / 确认 / 查询”等命令及完整 ID；也支持 reply / approve / query。未创建新任务。",
       );
     let task: Task;
     let previousRevision: number | undefined;
@@ -116,7 +136,8 @@ export class FeishuAdapter {
         channel: "feishu",
       });
     } else {
-      const [, action, id, rest = ""] = command;
+      const [, name, id, rest = ""] = command;
+      const action = commandActions[name.toLowerCase()];
       z.uuid().parse(id);
       previousRevision = this.service.store.task(id, actor).revision;
       if (action === "补充") {

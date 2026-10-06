@@ -144,7 +144,50 @@ test("机器人和群聊不进入业务，畸形内容不创建任务", () => {
         adapter.accept({ ...input, message: { ...input.message, ...change } }),
       );
     assert.throws(() => adapter.accept(message("确认 broken id")), /命令格式/);
+    assert.throws(
+      () => adapter.accept(message(`${randomUUID()} ${orderIds.delayed}`)),
+      /缺少动作/,
+    );
+    assert.throws(() => adapter.accept(message("reply broken id")), /命令格式/);
     assert.equal(store.tasks().length, 0);
+  } finally {
+    store.close();
+  }
+});
+
+test("英文命令与中文命令共用权限、补充去重和审批幂等", async () => {
+  const { store, service, adapter } = setup();
+  try {
+    const initial = adapter.accept(message("付款后未更新，请帮忙查询"));
+    await service.drain();
+    const reply = message(`REPLY ${initial.task.id} ${orderIds.delayed}`);
+    adapter.accept(reply);
+    adapter.accept(reply);
+    await service.drain();
+    const task = store.task(initial.task.id);
+    assert.equal(task.status, "awaiting_approval");
+    assert.throws(
+      () => adapter.accept(message(`approve ${task.id} ${task.proposal!.id}`)),
+      /运营身份/,
+    );
+    const approved = adapter.accept(
+      message(`approve ${task.id} ${task.proposal!.id}`, "ou_operations"),
+    );
+    assert.equal(approved.task.result?.verified, true);
+    assert.equal(
+      adapter.accept(
+        message(`确认 ${task.id} ${task.proposal!.id}`, "ou_operations"),
+      ).task.result?.actionId,
+      approved.task.result?.actionId,
+    );
+    assert.equal(
+      adapter.accept(message(`query ${task.id}`)).task.status,
+      "completed",
+    );
+    assert.equal(
+      store.order(actorById("service"), orderIds.delayed).version,
+      2,
+    );
   } finally {
     store.close();
   }

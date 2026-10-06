@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import {
   ArrowRight,
   Check,
@@ -11,6 +11,7 @@ import {
   FlaskConical,
   Inbox,
   Layers,
+  Link,
   LoaderCircle,
   MessageSquare,
   Play,
@@ -44,6 +45,7 @@ const filter = ref("all"),
   search = ref(""),
   detailTab = ref("timeline"),
   reply = ref("");
+const evidenceFocus = ref("");
 const showCreate = ref(true),
   busy = ref(false),
   error = ref(""),
@@ -56,6 +58,9 @@ const actor = computed(() =>
 const selected = computed(() =>
   tasks.value.find((t) => t.id === selectedId.value),
 );
+watch([() => selected.value?.id, () => selected.value?.epoch], () => {
+  evidenceFocus.value = "";
+});
 const selectedOrder = computed(() =>
   orders.value.find((o) => o.id === selected.value?.orderId),
 );
@@ -205,6 +210,12 @@ function selectTask(task: Task) {
   selectedId.value = task.id;
   lostResponse.value = false;
   detailTab.value = "timeline";
+}
+async function focusEvidence(id: string) {
+  evidenceFocus.value = id;
+  detailTab.value = "evidence";
+  await nextTick();
+  document.getElementById(id)?.scrollIntoView({ block: "nearest" });
 }
 async function exportTask() {
   if (!selected.value) return;
@@ -691,6 +702,51 @@ onUnmounted(() => clearInterval(timer));
                     <RefreshCw :size="16" /> 重新调查
                   </button>
                 </div>
+                <section
+                  v-if="selected.assessment"
+                  class="assessment"
+                  aria-label="证据化结论"
+                >
+                  <h3>已查证事实 <small>调查时快照</small></h3>
+                  <dl class="assessment-facts">
+                    <div
+                      v-for="fact in selected.assessment.facts"
+                      :key="fact.label"
+                    >
+                      <dt>{{ fact.label }}</dt>
+                      <dd>
+                        {{ fact.value
+                        }}<button
+                          class="icon-button"
+                          :title="`查看${fact.label}来源 · ${time(fact.observedAt)}`"
+                          @click="focusEvidence(fact.evidenceId)"
+                        >
+                          <Link :size="14" />
+                        </button>
+                      </dd>
+                    </div>
+                  </dl>
+                  <h3>证据支持的判断</h3>
+                  <p>{{ selected.assessment.summary }}</p>
+                  <h3>尚未确定</h3>
+                  <ul>
+                    <li
+                      v-for="item in selected.assessment.uncertainties"
+                      :key="item"
+                    >
+                      {{ item }}
+                    </li>
+                  </ul>
+                  <details v-if="selected.modelAnalysis" class="model-analysis">
+                    <summary>
+                      {{
+                        selected.mode === "deepseek" ? "模型解释" : "规则解释"
+                      }}
+                      · 未做逐句语义核验
+                    </summary>
+                    <p>{{ selected.modelAnalysis }}</p>
+                  </details>
+                </section>
                 <div class="tabs" role="tablist" aria-label="任务详情">
                   <button
                     role="tab"
@@ -743,7 +799,12 @@ onUnmounted(() => clearInterval(timer));
                   <details
                     v-for="item in selected.evidence"
                     :key="item.id"
-                    :open="item === selected.evidence.at(-1)"
+                    :id="item.id"
+                    :open="
+                      evidenceFocus
+                        ? item.id === evidenceFocus
+                        : item === selected.evidence.at(-1)
+                    "
                   >
                     <summary>
                       <span>{{ toolNames[item.tool] || item.tool }}</span

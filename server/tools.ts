@@ -7,6 +7,7 @@ import {
   proposalDigest,
 } from "./policy.js";
 import { Store, event } from "./store.js";
+import { assess, findings } from "./assessment.js";
 import type { Actor, Evidence, Order, Proposal, Task } from "./types.js";
 
 const orderId = z
@@ -33,6 +34,7 @@ const args = {
     .object({
       summary: z.string().min(8).max(1500),
       disposition: z.enum(["resolved", "handoff"]),
+      finding: z.enum(findings),
       evidenceIds: z.array(z.string().uuid()).max(24),
     })
     .strict(),
@@ -51,7 +53,7 @@ const descriptions: Record<ToolName, string> = {
   propose_action:
     "提出需审批的对账补偿或异常工单建议。不会执行写操作。必须引用当前调查工具返回的 evidence_id。",
   finish:
-    "根据当前证据结束调查或转人工。不修改订单。未访问订单只能转人工，不能声称已解决。",
+    "根据当前证据结束调查或转人工。finding 必须与证据一致；resolved 仅允许 payment_failed、payment_processing、backend_paid、existing_ticket。reconciliation_needed/manual_review 应提案或转人工；insufficient_evidence 只能转人工。summary 是需核查的模型解释，不是执行结果。",
 };
 export const toolDefinitions = Object.entries(args).map(([name, schema]) => ({
   type: "function" as const,
@@ -248,6 +250,26 @@ export class ToolExecutor {
         return this.propose(task, actor, input);
       case "finish": {
         validateReferences(task, input.evidenceIds as string[]);
+        const assessment = assess(task, input.evidenceIds as string[]);
+        if (task.orderId && assessment.finding !== "insufficient_evidence")
+          this.validateSnapshot(task, actor, input.evidenceIds as string[]);
+        if (input.finding !== assessment.finding)
+          throw new AppError(
+            "CONCLUSION_CONFLICT",
+            "结论类型与所引证据冲突，请核查工具记录后重新选择。",
+          );
+        if (
+          input.disposition === "resolved" &&
+          [
+            "reconciliation_needed",
+            "manual_review",
+            "insufficient_evidence",
+          ].includes(assessment.finding)
+        )
+          throw new AppError(
+            "UNRESOLVED_BUSINESS",
+            "现有证据仍需处置或人工核查，不能直接认定调查完成。",
+          );
         if (
           input.disposition === "resolved" &&
           (!task.orderId ||
@@ -266,7 +288,9 @@ export class ToolExecutor {
             "必须引用有效订单和支付证据，不能认定调查完成。",
           );
         task.status = input.disposition === "handoff" ? "handoff" : "completed";
-        task.summary = input.summary as string;
+        task.assessment = assessment;
+        task.modelAnalysis = input.summary as string;
+        task.summary = assessment.summary;
         event(
           task,
           "state",
@@ -280,6 +304,27 @@ export class ToolExecutor {
         };
       }
     }
+  }
+
+  private validateSnapshot(task: Task, actor: Actor, refs: string[]) {
+    const cited = (tool: string) =>
+      currentEvidence(task).findLast(
+        (e) => e.tool === tool && refs.includes(e.id),
+      )!;
+    const observedOrder = cited("get_order").result as { order: Order };
+    const observedPayment = cited("get_payment").result as {
+      payment: { version: number };
+    };
+    if (
+      observedOrder.order.version !==
+        this.store.order(actor, task.orderId!).version ||
+      observedPayment.payment.version !==
+        this.store.payment(actor, task.orderId!).version
+    )
+      throw new AppError(
+        "STALE_EVIDENCE",
+        "调查期间业务状态变化，请重新读取并引用当前订单与支付证据。",
+      );
   }
 
   private propose(task: Task, actor: Actor, input: Record<string, unknown>) {
@@ -304,20 +349,7 @@ export class ToolExecutor {
       );
     const order = this.store.order(actor, input.orderId as string);
     const payment = this.store.payment(actor, order.id);
-    const observedOrder = latestEvidence(task, "get_order")?.result as {
-      order: Order;
-    };
-    const observedPayment = latestEvidence(task, "get_payment")?.result as {
-      payment: { version: number };
-    };
-    if (
-      observedOrder.order.version !== order.version ||
-      observedPayment.payment.version !== payment.version
-    )
-      throw new AppError(
-        "STALE_EVIDENCE",
-        "调查期间业务状态已变化，请重新读取证据。",
-      );
+    this.validateSnapshot(task, actor, refs);
     if (this.store.tickets(actor, order.id).length)
       throw new AppError(
         "EXISTING_TICKET",
@@ -331,18 +363,29 @@ export class ToolExecutor {
         "POLICY_DENIED",
         "不符合后端对账条件，只能提出人工工单或结束调查。",
       );
+    const assessment = assess(task, refs);
+    if (
+      input.action === "create_ticket" &&
+      assessment.finding !== "manual_review"
+    )
+      throw new AppError(
+        "POLICY_DENIED",
+        "当前事实不支持新建异常工单，请解释状态、继续调查或转人工。",
+      );
     const proposal: Omit<Proposal, "digest"> = {
       id: randomUUID(),
       action: input.action as Proposal["action"],
       orderId: order.id,
       orderVersion: order.version,
       paymentVersion: payment.version,
-      reason: input.reason as string,
+      reason: assessment.summary,
       evidenceIds: refs,
       policyVersion,
       expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
     };
     task.proposal = { ...proposal, digest: proposalDigest(proposal) };
+    task.assessment = assessment;
+    task.modelAnalysis = input.reason as string;
     task.status = "awaiting_approval";
     event(task, "approval", "处置提案待确认", task.proposal.reason);
     return { proposal: task.proposal, executed: false };

@@ -159,6 +159,8 @@ export class CaseService {
     task.status = "queued";
     task.proposal = undefined;
     task.summary = undefined;
+    task.assessment = undefined;
+    task.modelAnalysis = undefined;
     task.messages = [
       {
         role: "user",

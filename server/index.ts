@@ -9,6 +9,8 @@ import { CaseService } from "./service.js";
 import { DeepSeekProvider, MockProvider } from "./providers.js";
 import { createApp } from "./app.js";
 import { startFeishu } from "./feishu.js";
+import { RequestBudget } from "./request-budget.js";
+import { errorResult } from "./errors.js";
 
 const cfg = loadConfig();
 mkdirSync(cfg.DATA_DIR, { recursive: true });
@@ -22,6 +24,19 @@ try {
   process.exit(1);
 }
 const store = new Store(resolve(cfg.DATA_DIR, "casepilot.sqlite"));
+let budget: RequestBudget | undefined;
+try {
+  if (cfg.MODEL_BUDGET_FILE)
+    budget = new RequestBudget(
+      resolve(cfg.MODEL_BUDGET_FILE),
+      cfg.MAX_TOTAL_MODEL_REQUESTS,
+    );
+} catch (error) {
+  console.error("模型预算配置失败：", errorResult(error).code);
+  store.close();
+  await release?.();
+  process.exit(1);
+}
 const service = new CaseService(
   store,
   {
@@ -33,6 +48,7 @@ const service = new CaseService(
             baseURL: cfg.DEEPSEEK_BASE_URL,
             model: cfg.DEEPSEEK_MODEL,
             timeout: cfg.MODEL_TIMEOUT_MS,
+            reserveRequest: budget ? () => budget.reserve() : undefined,
           }),
         }
       : {}),
@@ -67,6 +83,7 @@ server.on("error", async (error) => {
   );
   await release?.();
   store.close();
+  budget?.close();
   process.exit(1);
 });
 server.listen(cfg.PORT, cfg.HOST, async () => {
@@ -93,6 +110,7 @@ async function shutdown() {
   await closeVite?.();
   await release?.();
   store.close();
+  budget?.close();
   process.exit(0);
 }
 process.on("SIGINT", () => void shutdown());

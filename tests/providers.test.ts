@@ -6,6 +6,7 @@ import { DeepSeekProvider, MockProvider } from "../server/providers.js";
 import { Store } from "../server/store.js";
 import { actorById, CaseService } from "../server/service.js";
 import { scenarios } from "../server/fixtures.js";
+import { RequestBudget } from "../server/request-budget.js";
 
 test("DeepSeek协议：非思考模式、工具映射、用量和请求预算（本地模拟API）", async () => {
   let count = 0;
@@ -79,11 +80,13 @@ test("模型API失败不隐藏重试、不泄漏响应里的密钥、不回退�
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const store = new Store();
+  const budget = new RequestBudget(":memory:", 1);
   try {
     const provider = new DeepSeekProvider({
       apiKey: "test-only-not-a-real-key",
       model: "deepseek-flash",
       baseURL: `http://127.0.0.1:${(server.address() as { port: number }).port}`,
+      reserveRequest: () => budget.reserve(),
     });
     const service = new CaseService(store, { deepseek: provider });
     const actor = actorById("service");
@@ -97,7 +100,12 @@ test("模型API失败不隐藏重试、不泄漏响应里的密钥、不回退�
     assert.equal(result.usage.toolCalls, 0);
     assert.equal(count, 1);
     assert.equal(JSON.stringify(result).includes("private-test-secret"), false);
+    assert.equal(budget.snapshot().used, 1);
+    await assert.rejects(provider.decide(result), /总请求预算已用尽/);
+    assert.equal(provider.requestsSent, 1);
+    assert.equal(count, 1);
   } finally {
+    budget.close();
     store.close();
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }

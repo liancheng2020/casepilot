@@ -12,6 +12,26 @@ export type Status =
   | "cancelled";
 export type Action = "reconcile_payment" | "create_ticket";
 export type OrderStatus = "pending" | "paid" | "closed";
+export type Finding =
+  | "payment_failed"
+  | "payment_processing"
+  | "backend_paid"
+  | "existing_ticket"
+  | "reconciliation_needed"
+  | "manual_review"
+  | "insufficient_evidence";
+export interface Assessment {
+  finding: Finding;
+  summary: string;
+  evidenceIds: string[];
+  facts: {
+    label: string;
+    value: string;
+    evidenceId: string;
+    observedAt: string;
+  }[];
+  uncertainties: string[];
+}
 
 export interface Actor {
   id: string;
@@ -115,6 +135,8 @@ export interface Task {
   proposal?: Proposal;
   question?: string;
   summary?: string;
+  assessment?: Assessment;
+  modelAnalysis?: string;
   result?: {
     actionId?: string;
     ticketId?: string;

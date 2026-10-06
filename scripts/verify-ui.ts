@@ -1,12 +1,18 @@
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+  copyFileSync,
+} from "node:fs";
 import { resolve, join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { chromium, type Browser } from "playwright";
 import { orderIds, scenarios } from "../server/fixtures.js";
-import type { Task } from "../server/types.js";
+import type { Task, Order } from "../server/types.js";
 
 const dataDir = mkdtempSync(join(tmpdir(), "casepilot-ui-"));
 const port = Number(process.env.UI_TEST_PORT || 5199);
@@ -97,8 +103,14 @@ try {
   await start();
   const page = await browser.newPage({
     viewport: { width: 1440, height: 1000 },
+    recordVideo: {
+      dir: join(output, "video"),
+      size: { width: 1440, height: 1000 },
+    },
   });
   page.on("pageerror", (e) => errors.push(e.message));
+  // Leave time to inspect each milestone in the recorded interview demonstration.
+  const hold = () => page.waitForTimeout(2000);
   await page.goto(base);
   await page.getByRole("button", { name: "开始调查" }).click();
   await page.getByRole("heading", { name: "对账补偿提案" }).waitFor();
@@ -109,15 +121,45 @@ try {
   checks.push("客服不能审批");
   await page.locator(".actor-select select").selectOption("operations");
   await page.getByRole("button", { name: "确认并执行" }).waitFor();
+  await page
+    .getByRole("region", { name: "证据化结论" })
+    .getByRole("heading", { name: "已查证事实" })
+    .waitFor();
+  checks.push("已查证事实、受支持判断与未确定项分开显示");
+  await hold();
   await page.screenshot({ path: join(output, "desktop.png"), fullPage: true });
-  await page.getByRole("tab", { name: /工具证据/ }).click();
+  await page.getByTitle(/查看订单状态来源/).click();
   assert.ok((await page.locator(".evidence-list details").count()) >= 6);
+  assert.match(
+    await page.locator(".evidence-list details[open] summary").innerText(),
+    /读取订单/,
+  );
   checks.push("工具证据可查看");
+  await hold();
   await page.getByRole("tab", { name: /调查记录/ }).click();
+  await page.getByRole("button", { name: "确认并执行" }).click();
+  await page.getByRole("heading", { name: "处理记录" }).waitFor();
+  assert.equal(
+    (await api<Order[]>("/orders")).find((o) => o.id === orderIds.delayed)
+      ?.status,
+    "paid",
+  );
+  checks.push("正常审批后后台状态已支付");
+  await hold();
+  const uncertain = await api<Task>("/tasks", {
+    complaint: `订单 ${orderIds.ambiguousA} 支付后待支付，请核查`,
+    mode: "mock",
+    requestId: randomUUID(),
+  });
+  await settled(uncertain.id);
+  await page.goto(`${base}/?task=${uncertain.id}`);
+  await page.getByRole("heading", { name: "对账补偿提案" }).waitFor();
+  await page.locator(".actor-select select").selectOption("operations");
   await page.getByLabel("模拟执行响应丢失").check();
   await page.getByRole("button", { name: "确认并执行" }).click();
   await page.getByRole("button", { name: "核对结果" }).waitFor();
   checks.push("响应丢失不声称完成");
+  await hold();
   const task = (await api<Task[]>("/tasks"))[0];
   await stop();
   await start();
@@ -125,10 +167,11 @@ try {
   await page.getByRole("heading", { name: "处理记录" }).waitFor();
   assert.equal((await api<Task>(`/tasks/${task.id}`)).result?.verified, true);
   checks.push("进程重启恢复并核验原执行记录");
+  await hold();
   const changed = await api<Task>("/tasks", {
     complaint: scenarios[0].complaint.replace(
       orderIds.delayed,
-      orderIds.ambiguousA,
+      orderIds.ambiguousB,
     ),
     mode: "mock",
     requestId: randomUUID(),
@@ -142,9 +185,20 @@ try {
   checks.push("并发状态变化拒绝旧提案");
   await page.goto(`${base}/?task=${changed.id}`);
   await page.getByRole("button", { name: "重新调查" }).waitFor();
+  await hold();
   await page.getByRole("button", { name: "重新调查" }).click();
   await page.getByRole("heading", { name: "异常工单提案" }).waitFor();
+  await hold();
+  await page.locator(".actor-select select").selectOption("operations");
+  await page.getByRole("button", { name: "确认并执行" }).click();
+  await page.getByRole("heading", { name: "处理记录" }).waitFor();
+  assert.equal(
+    (await api<Order[]>("/orders")).find((o) => o.id === orderIds.ambiguousB)
+      ?.status,
+    "closed",
+  );
   checks.push("重新调查得到新处置分支");
+  await hold();
   await page.getByRole("button", { name: "案例库" }).click();
   assert.ok((await page.locator("tbody tr").count()) >= 12);
   await page.getByRole("button", { name: "演示订单" }).click();
@@ -162,7 +216,7 @@ try {
   });
   mobile.on("pageerror", (e) => errors.push(e.message));
   await mobile.goto(`${base}/?task=${changed.id}`);
-  await mobile.getByRole("heading", { name: "异常工单提案" }).waitFor();
+  await mobile.getByRole("heading", { name: "处理记录" }).waitFor();
   assert.equal(
     await mobile.evaluate(
       () => document.documentElement.scrollWidth <= innerWidth,
@@ -199,6 +253,9 @@ try {
     JSON.stringify(report, null, 2),
   );
   assert.deepEqual(errors, []);
+  const video = page.video()!;
+  await page.context().close();
+  copyFileSync(await video.path(), join(output, "interview-demo.webm"));
   console.log(
     `UI: ${checks.length} checks passed, no browser errors. Screenshots: ${output}`,
   );

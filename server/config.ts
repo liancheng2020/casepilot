@@ -15,6 +15,13 @@ const schema = z.object({
     .min(1000)
     .max(120000)
     .default(25000),
+  MODEL_BUDGET_FILE: z.string().default(""),
+  MAX_TOTAL_MODEL_REQUESTS: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(10000)
+    .default(60),
   DEEPSEEK_API_KEY: z.string().default(""),
   DEEPSEEK_BASE_URL: z.url().default("https://api.deepseek.com"),
   DEEPSEEK_MODEL: z.string().default("deepseek-flash"),

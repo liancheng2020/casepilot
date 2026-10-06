@@ -13,6 +13,7 @@
     "test": "tsx --test tests/*.test.ts",
     "eval": "tsx scripts/evaluate.ts",
     "eval:model": "tsx scripts/evaluate.ts --model",
+    "demo": "tsx scripts/demo.ts",
     "test:ui": "tsx scripts/verify-ui.ts",
     "format": "prettier --write server src tests scripts docs README.md"
   },
